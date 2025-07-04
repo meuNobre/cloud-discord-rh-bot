@@ -11,7 +11,7 @@ module.exports = (client) => {
 
   const app = express()
   const port = 3001
-  const publicURL = config.publicURL || `http://localhost:${port}`;
+  const publicURL = config.publicURL;
 
   // Middleware básico
   app.use(
@@ -273,7 +273,7 @@ module.exports = (client) => {
 
   try {
     server = app.listen(port, () => {
-      console.log(`🚀 API de status do bot rodando em http://localhost:${port}`)
+      console.log(`🚀 API de status do bot rodando em ${publicURL}`)
       console.log(`📊 Endpoints disponíveis:`)
       console.log(`   GET /status - Status completo do bot`)
       console.log(`   GET /bot - Informações do bot`)
