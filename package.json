@@ -1,0 +1,74 @@
+{
+  "name": "bot2025",
+  "version": "3.0.0",
+  "description": "Sistema de recrutamento e suporte do Discord com banco de dados SQLite e documentação web",
+  "main": "index.js",
+  "private": true,
+  "scripts": {
+    "start": "node index.js",
+    "dev": "nodemon index.js",
+    "build": "next build",
+    "web": "next dev",
+    "web-build": "next build && next start",
+    "lint": "eslint . --ext .js,.jsx,.ts,.tsx",
+    "lint:fix": "eslint . --ext .js,.jsx,.ts,.tsx --fix",
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "clean": "rm -rf .next node_modules/.cache",
+    "postinstall": "echo \"✅ Dependências instaladas com sucesso!\""
+  },
+  "keywords": [
+    "discord",
+    "bot",
+    "recruitment",
+    "support",
+    "database",
+    "sqlite",
+    "documentation",
+    "api",
+    "nextjs",
+    "react",
+    "automation"
+  ],
+  "author": "Nobre",
+  "license": "MIT",
+  "dependencies": {
+    "cors": "^2.8.5",
+    "discord.js": "^14.21.0",
+    "dotenv": "^17.0.1",
+    "express": "^4.18.2",
+    "sqlite3": "^5.1.6",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "next": "^14.2.30",
+    "@radix-ui/react-slot": "^1.0.2",
+    "class-variance-authority": "^0.7.0",
+    "clsx": "^2.0.0",
+    "lucide-react": "^0.294.0",
+    "tailwind-merge": "^2.0.0",
+    "tailwindcss-animate": "^1.0.7"
+  },
+  "devDependencies": {
+    "eslint": "^8.57.0",
+    "eslint-config-next": "^14.2.30",
+    "nodemon": "^3.0.2",
+    "typescript": "^5.3.3",
+    "@types/node": "^20.10.5",
+    "@types/react": "^18.2.45",
+    "@types/react-dom": "^18.2.18",
+    "autoprefixer": "^10.4.16",
+    "postcss": "^8.4.32",
+    "tailwindcss": "^3.3.6"
+  },
+  "engines": {
+    "node": ">=18.0.0",
+    "npm": ">=8.0.0"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/meuNobre/bot2025"
+  },
+  "bugs": {
+    "url": "https://github.com/meuNobre/bot2025/issues"
+  },
+  "homepage": "https://github.com/meuNobre/bot2025#readme"
+}
