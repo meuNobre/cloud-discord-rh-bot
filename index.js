@@ -12,6 +12,7 @@ const {
   ActionRowBuilder,
   StringSelectMenuBuilder,
 } = require("discord.js")
+const { token } = require("./config.json")
 const database = require("./database/database")
 const { setupPeriodicCleanup } = require("./utils/cleanup")
 
@@ -503,5 +504,4 @@ process.on("SIGINT", () => {
 })
 
 // Login do bot
-require('dotenv').config();
-client.login(process.env.DISCORD_TOKEN);
+client.login(token)
