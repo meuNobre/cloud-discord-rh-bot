@@ -1,5 +1,6 @@
 const express = require("express")
 const cors = require("cors")
+const config = require("./config.json"); // importa config
 
 module.exports = (client) => {
   // Verificar se o client está disponível
@@ -10,6 +11,7 @@ module.exports = (client) => {
 
   const app = express()
   const port = 3001
+  const publicURL = config.publicURL || `http://localhost:${port}`;
 
   // Middleware básico
   app.use(
