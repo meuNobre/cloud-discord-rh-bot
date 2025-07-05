@@ -21,13 +21,23 @@ module.exports = {
     ),
 
   async execute(interaction) {
+    // Verificar se a interação ainda é válida
+    if (interaction.replied || interaction.deferred) {
+      console.log("❌ Interação já foi processada - status-convite")
+      return
+    }
+
     const usuario = interaction.options.getUser("usuario")
     const messageId = interaction.options.getString("message-id")
     const database = global.ticketSystem.database
 
-    await interaction.deferReply({ ephemeral: true })
-
     try {
+      // Adicionar timeout para deferReply
+      await Promise.race([
+        interaction.deferReply({ ephemeral: true }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout no deferReply")), 3000)),
+      ])
+
       let invite
 
       if (messageId) {
@@ -52,7 +62,10 @@ module.exports = {
           .setFooter({ text: "Hylex • Sistema de Verificação" })
           .setTimestamp()
 
-        await interaction.followUp({ embeds: [notFoundEmbed] })
+        // Verificar se ainda pode responder
+        if (!interaction.replied && interaction.deferred) {
+          await interaction.followUp({ embeds: [notFoundEmbed] })
+        }
         return
       }
 
@@ -143,7 +156,10 @@ module.exports = {
         })
       }
 
-      await interaction.followUp({ embeds: [statusEmbed] })
+      // Verificar se ainda pode responder
+      if (!interaction.replied && interaction.deferred) {
+        await interaction.followUp({ embeds: [statusEmbed] })
+      }
     } catch (error) {
       console.error("Erro ao verificar status:", error)
 
@@ -153,7 +169,20 @@ module.exports = {
         .setColor(COLORS.ERROR)
         .setTimestamp()
 
-      await interaction.followUp({ embeds: [errorEmbed] })
+      // Tentar responder apenas se ainda não foi respondido
+      if (!interaction.replied && !interaction.deferred) {
+        try {
+          await interaction.reply({ embeds: [errorEmbed], ephemeral: true })
+        } catch (replyError) {
+          console.error("❌ Erro ao responder interação:", replyError.message)
+        }
+      } else if (interaction.deferred && !interaction.replied) {
+        try {
+          await interaction.followUp({ embeds: [errorEmbed] })
+        } catch (followUpError) {
+          console.error("❌ Erro ao fazer followUp:", followUpError.message)
+        }
+      }
     }
   },
 }

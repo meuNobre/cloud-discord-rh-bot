@@ -11,11 +11,21 @@ module.exports = {
   data: new SlashCommandBuilder().setName("finalizar-processo").setDescription("🏁 Finaliza o processo seletivo ativo"),
 
   async execute(interaction) {
+    // Verificar se a interação ainda é válida
+    if (interaction.replied || interaction.deferred) {
+      console.log("❌ Interação já foi processada - finalizar-processo")
+      return
+    }
+
     const database = global.ticketSystem.database
 
-    await interaction.deferReply({ ephemeral: true })
-
     try {
+      // Adicionar timeout para deferReply
+      await Promise.race([
+        interaction.deferReply({ ephemeral: true }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout no deferReply")), 3000)),
+      ])
+
       // Verificar se existe um processo ativo
       const activeProcess = await database.getActiveProcess()
 
@@ -32,7 +42,10 @@ module.exports = {
           .setFooter({ text: "Hylex • Sistema de Processos" })
           .setTimestamp()
 
-        await interaction.followUp({ embeds: [noProcessEmbed] })
+        // Verificar se ainda pode responder
+        if (!interaction.replied && interaction.deferred) {
+          await interaction.followUp({ embeds: [noProcessEmbed] })
+        }
         return
       }
 
@@ -93,7 +106,10 @@ module.exports = {
         .setTimestamp()
         .setThumbnail(interaction.user.displayAvatarURL({ dynamic: true }))
 
-      await interaction.followUp({ embeds: [finalEmbed] })
+      // Verificar se ainda pode responder
+      if (!interaction.replied && interaction.deferred) {
+        await interaction.followUp({ embeds: [finalEmbed] })
+      }
 
       console.log(
         `🏁 Processo seletivo finalizado: ID ${activeProcess.id} - ${activeProcess.name} por ${interaction.user.tag}`,
@@ -112,7 +128,20 @@ module.exports = {
         })
         .setTimestamp()
 
-      await interaction.followUp({ embeds: [errorEmbed] })
+      // Tentar responder apenas se ainda não foi respondido
+      if (!interaction.replied && !interaction.deferred) {
+        try {
+          await interaction.reply({ embeds: [errorEmbed], ephemeral: true })
+        } catch (replyError) {
+          console.error("❌ Erro ao responder interação:", replyError.message)
+        }
+      } else if (interaction.deferred && !interaction.replied) {
+        try {
+          await interaction.followUp({ embeds: [errorEmbed] })
+        } catch (followUpError) {
+          console.error("❌ Erro ao fazer followUp:", followUpError.message)
+        }
+      }
     }
   },
 }

@@ -34,13 +34,23 @@ module.exports = {
     ),
 
   async execute(interaction) {
+    // Verificar se a interação ainda é válida
+    if (interaction.replied || interaction.deferred) {
+      console.log("❌ Interação já foi processada - relatorio")
+      return
+    }
+
     const tipo = interaction.options.getString("tipo")
     const dias = interaction.options.getInteger("dias") || 30
     const database = global.ticketSystem.database
 
-    await interaction.deferReply({ ephemeral: true })
-
     try {
+      // Adicionar timeout para deferReply
+      await Promise.race([
+        interaction.deferReply({ ephemeral: true }),
+        new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout no deferReply")), 3000)),
+      ])
+
       if (tipo === "recruitment" || tipo === "complete") {
         const recruitmentStats = await database.getRecruitmentStats(dias)
         const recentInvites = await database.getRecentInvites(5)
@@ -77,7 +87,10 @@ module.exports = {
           })
         }
 
-        await interaction.followUp({ embeds: [recruitmentEmbed] })
+        // Verificar se ainda pode responder antes de enviar
+        if (!interaction.replied && interaction.deferred) {
+          await interaction.followUp({ embeds: [recruitmentEmbed] })
+        }
       }
 
       if (tipo === "support" || tipo === "complete") {
@@ -107,7 +120,10 @@ module.exports = {
           .setFooter({ text: "Hylex • Sistema de Relatórios" })
           .setTimestamp()
 
-        await interaction.followUp({ embeds: [supportEmbed] })
+        // Verificar se ainda pode responder antes de enviar
+        if (!interaction.replied && interaction.deferred) {
+          await interaction.followUp({ embeds: [supportEmbed] })
+        }
       }
     } catch (error) {
       console.error("Erro ao gerar relatório:", error)
@@ -118,7 +134,20 @@ module.exports = {
         .setColor(COLORS.ERROR)
         .setTimestamp()
 
-      await interaction.followUp({ embeds: [errorEmbed] })
+      // Tentar responder apenas se ainda não foi respondido
+      if (!interaction.replied && !interaction.deferred) {
+        try {
+          await interaction.reply({ embeds: [errorEmbed], ephemeral: true })
+        } catch (replyError) {
+          console.error("❌ Erro ao responder interação:", replyError.message)
+        }
+      } else if (interaction.deferred && !interaction.replied) {
+        try {
+          await interaction.followUp({ embeds: [errorEmbed] })
+        } catch (followUpError) {
+          console.error("❌ Erro ao fazer followUp:", followUpError.message)
+        }
+      }
     }
   },
 }
