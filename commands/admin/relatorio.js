@@ -9,6 +9,9 @@ const COLORS = {
   GOLD: "#FFD700",
 }
 
+// Cache para evitar processamento duplicado
+const processedInteractions = new Set()
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("relatorio")
@@ -34,10 +37,42 @@ module.exports = {
     ),
 
   async execute(interaction) {
-    // Verificar se a interação ainda é válida
-    if (interaction.replied || interaction.deferred) {
-      console.log("❌ Interação já foi processada - relatorio")
+    // Verificações de segurança mais rigorosas
+    const interactionId = `${interaction.id}_${interaction.user.id}_${Date.now()}`
+    const interactionAge = Date.now() - interaction.createdTimestamp
+
+    console.log(`🔍 [RELATORIO] Iniciando comando:`)
+    console.log(`   👤 Usuário: ${interaction.user.tag}`)
+    console.log(`   🆔 ID: ${interaction.id}`)
+    console.log(`   ⏰ Idade: ${interactionAge}ms`)
+    console.log(`   ✅ Replied: ${interaction.replied}`)
+    console.log(`   ⏳ Deferred: ${interaction.deferred}`)
+
+    // Verificar se a interação é muito antiga (mais rigoroso)
+    if (interactionAge > 2000) {
+      console.warn(`⚠️ [RELATORIO] Interação muito antiga (${interactionAge}ms), ignorando`)
       return
+    }
+
+    // Verificar se já foi processada
+    if (processedInteractions.has(interactionId)) {
+      console.warn(`⚠️ [RELATORIO] Interação já processada, ignorando`)
+      return
+    }
+
+    // Verificar estado da interação
+    if (interaction.replied || interaction.deferred) {
+      console.warn(`⚠️ [RELATORIO] Interação já foi respondida/deferida, ignorando`)
+      return
+    }
+
+    // Marcar como processada
+    processedInteractions.add(interactionId)
+
+    // Limpar cache antigo (manter apenas últimas 100 interações)
+    if (processedInteractions.size > 100) {
+      const entries = Array.from(processedInteractions)
+      entries.slice(0, 50).forEach((id) => processedInteractions.delete(id))
     }
 
     const tipo = interaction.options.getString("tipo")
@@ -45,13 +80,26 @@ module.exports = {
     const database = global.ticketSystem.database
 
     try {
-      // Adicionar timeout para deferReply
-      await Promise.race([
-        interaction.deferReply({ ephemeral: true }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout no deferReply")), 3000)),
-      ])
+      console.log(`🔄 [RELATORIO] Tentando deferReply...`)
+
+      // Usar Promise.race com timeout mais agressivo
+      const deferPromise = interaction.deferReply({ ephemeral: true })
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Timeout no deferReply")), 1500),
+      )
+
+      await Promise.race([deferPromise, timeoutPromise])
+      console.log(`✅ [RELATORIO] DeferReply bem-sucedido`)
+
+      // Verificar novamente se ainda pode responder
+      if (interaction.replied && !interaction.deferred) {
+        console.warn(`⚠️ [RELATORIO] Estado inconsistente após deferReply`)
+        return
+      }
 
       if (tipo === "recruitment" || tipo === "complete") {
+        console.log(`📊 [RELATORIO] Gerando relatório de recrutamento...`)
+
         const recruitmentStats = await database.getRecruitmentStats(dias)
         const recentInvites = await database.getRecentInvites(5)
 
@@ -88,12 +136,17 @@ module.exports = {
         }
 
         // Verificar se ainda pode responder antes de enviar
-        if (!interaction.replied && interaction.deferred) {
+        if (interaction.deferred && !interaction.replied) {
+          console.log(`📤 [RELATORIO] Enviando relatório de recrutamento...`)
           await interaction.followUp({ embeds: [recruitmentEmbed] })
+        } else {
+          console.warn(`⚠️ [RELATORIO] Não pode enviar relatório de recrutamento - estado inválido`)
         }
       }
 
       if (tipo === "support" || tipo === "complete") {
+        console.log(`📊 [RELATORIO] Gerando relatório de suporte...`)
+
         const supportStats = await database.getTicketStats(dias)
 
         const supportEmbed = new EmbedBuilder()
@@ -121,33 +174,50 @@ module.exports = {
           .setTimestamp()
 
         // Verificar se ainda pode responder antes de enviar
-        if (!interaction.replied && interaction.deferred) {
+        if (interaction.deferred && !interaction.replied) {
+          console.log(`📤 [RELATORIO] Enviando relatório de suporte...`)
           await interaction.followUp({ embeds: [supportEmbed] })
+        } else {
+          console.warn(`⚠️ [RELATORIO] Não pode enviar relatório de suporte - estado inválido`)
         }
       }
+
+      console.log(`✅ [RELATORIO] Comando concluído com sucesso`)
     } catch (error) {
-      console.error("Erro ao gerar relatório:", error)
+      console.error(`❌ [RELATORIO] Erro ao gerar relatório:`, error)
 
       const errorEmbed = new EmbedBuilder()
         .setTitle("❌ Erro no Relatório")
         .setDescription("Ocorreu um erro ao gerar o relatório.")
         .setColor(COLORS.ERROR)
+        .addFields({
+          name: "🔧 Detalhes",
+          value: `\`${error.message}\``,
+          inline: false,
+        })
         .setTimestamp()
 
-      // Tentar responder apenas se ainda não foi respondido
-      if (!interaction.replied && !interaction.deferred) {
-        try {
+      // Tentar responder de forma mais defensiva
+      try {
+        if (!interaction.replied && !interaction.deferred) {
+          console.log(`📤 [RELATORIO] Tentando reply direto com erro...`)
           await interaction.reply({ embeds: [errorEmbed], ephemeral: true })
-        } catch (replyError) {
-          console.error("❌ Erro ao responder interação:", replyError.message)
-        }
-      } else if (interaction.deferred && !interaction.replied) {
-        try {
+        } else if (interaction.deferred && !interaction.replied) {
+          console.log(`📤 [RELATORIO] Tentando followUp com erro...`)
           await interaction.followUp({ embeds: [errorEmbed] })
-        } catch (followUpError) {
-          console.error("❌ Erro ao fazer followUp:", followUpError.message)
+        } else {
+          console.warn(
+            `⚠️ [RELATORIO] Não pode responder erro - estado: replied=${interaction.replied}, deferred=${interaction.deferred}`,
+          )
         }
+      } catch (replyError) {
+        console.error(`❌ [RELATORIO] Erro ao responder com erro:`, replyError.message)
       }
+    } finally {
+      // Remover do cache após um tempo
+      setTimeout(() => {
+        processedInteractions.delete(interactionId)
+      }, 30000) // 30 segundos
     }
   },
 }

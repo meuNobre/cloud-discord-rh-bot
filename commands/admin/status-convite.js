@@ -9,6 +9,9 @@ const COLORS = {
   GOLD: "#FFD700",
 }
 
+// Cache para evitar processamento duplicado
+const processedInteractions = new Set()
+
 module.exports = {
   data: new SlashCommandBuilder()
     .setName("status-convite")
@@ -21,10 +24,42 @@ module.exports = {
     ),
 
   async execute(interaction) {
-    // Verificar se a interação ainda é válida
-    if (interaction.replied || interaction.deferred) {
-      console.log("❌ Interação já foi processada - status-convite")
+    // Verificações de segurança mais rigorosas
+    const interactionId = `${interaction.id}_${interaction.user.id}_${Date.now()}`
+    const interactionAge = Date.now() - interaction.createdTimestamp
+
+    console.log(`🔍 [STATUS-CONVITE] Iniciando comando:`)
+    console.log(`   👤 Usuário: ${interaction.user.tag}`)
+    console.log(`   🆔 ID: ${interaction.id}`)
+    console.log(`   ⏰ Idade: ${interactionAge}ms`)
+    console.log(`   ✅ Replied: ${interaction.replied}`)
+    console.log(`   ⏳ Deferred: ${interaction.deferred}`)
+
+    // Verificar se a interação é muito antiga (mais rigoroso)
+    if (interactionAge > 2000) {
+      console.warn(`⚠️ [STATUS-CONVITE] Interação muito antiga (${interactionAge}ms), ignorando`)
       return
+    }
+
+    // Verificar se já foi processada
+    if (processedInteractions.has(interactionId)) {
+      console.warn(`⚠️ [STATUS-CONVITE] Interação já processada, ignorando`)
+      return
+    }
+
+    // Verificar estado da interação
+    if (interaction.replied || interaction.deferred) {
+      console.warn(`⚠️ [STATUS-CONVITE] Interação já foi respondida/deferida, ignorando`)
+      return
+    }
+
+    // Marcar como processada
+    processedInteractions.add(interactionId)
+
+    // Limpar cache antigo
+    if (processedInteractions.size > 100) {
+      const entries = Array.from(processedInteractions)
+      entries.slice(0, 50).forEach((id) => processedInteractions.delete(id))
     }
 
     const usuario = interaction.options.getUser("usuario")
@@ -32,24 +67,37 @@ module.exports = {
     const database = global.ticketSystem.database
 
     try {
-      // Adicionar timeout para deferReply
-      await Promise.race([
-        interaction.deferReply({ ephemeral: true }),
-        new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout no deferReply")), 3000)),
-      ])
+      console.log(`🔄 [STATUS-CONVITE] Tentando deferReply...`)
+
+      // Usar Promise.race com timeout mais agressivo
+      const deferPromise = interaction.deferReply({ ephemeral: true })
+      const timeoutPromise = new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Timeout no deferReply")), 1500),
+      )
+
+      await Promise.race([deferPromise, timeoutPromise])
+      console.log(`✅ [STATUS-CONVITE] DeferReply bem-sucedido`)
+
+      // Verificar novamente se ainda pode responder
+      if (interaction.replied && !interaction.deferred) {
+        console.warn(`⚠️ [STATUS-CONVITE] Estado inconsistente após deferReply`)
+        return
+      }
 
       let invite
 
       if (messageId) {
-        // Busca convite específico por message ID
+        console.log(`🔍 [STATUS-CONVITE] Buscando convite por message ID: ${messageId}`)
         invite = await database.getInviteStatus(usuario.id, messageId)
       } else {
-        // Busca o convite mais recente do usuário
+        console.log(`🔍 [STATUS-CONVITE] Buscando convite mais recente para: ${usuario.tag}`)
         const recentInvites = await database.getRecentInvitesByUser(usuario.id, 1)
         invite = recentInvites[0]
       }
 
       if (!invite) {
+        console.log(`❌ [STATUS-CONVITE] Convite não encontrado`)
+
         const notFoundEmbed = new EmbedBuilder()
           .setTitle("❌ Convite Não Encontrado")
           .setDescription(`Nenhum convite encontrado para **${usuario.tag}**`)
@@ -63,11 +111,14 @@ module.exports = {
           .setTimestamp()
 
         // Verificar se ainda pode responder
-        if (!interaction.replied && interaction.deferred) {
+        if (interaction.deferred && !interaction.replied) {
+          console.log(`📤 [STATUS-CONVITE] Enviando resposta de não encontrado...`)
           await interaction.followUp({ embeds: [notFoundEmbed] })
         }
         return
       }
+
+      console.log(`✅ [STATUS-CONVITE] Convite encontrado: ${invite.status}`)
 
       // Mapear status para emojis e textos
       const statusMap = {
@@ -157,32 +208,47 @@ module.exports = {
       }
 
       // Verificar se ainda pode responder
-      if (!interaction.replied && interaction.deferred) {
+      if (interaction.deferred && !interaction.replied) {
+        console.log(`📤 [STATUS-CONVITE] Enviando status do convite...`)
         await interaction.followUp({ embeds: [statusEmbed] })
       }
+
+      console.log(`✅ [STATUS-CONVITE] Comando concluído com sucesso`)
     } catch (error) {
-      console.error("Erro ao verificar status:", error)
+      console.error(`❌ [STATUS-CONVITE] Erro ao verificar status:`, error)
 
       const errorEmbed = new EmbedBuilder()
         .setTitle("❌ Erro na Verificação")
         .setDescription("Ocorreu um erro ao verificar o status do convite.")
         .setColor(COLORS.ERROR)
+        .addFields({
+          name: "🔧 Detalhes",
+          value: `\`${error.message}\``,
+          inline: false,
+        })
         .setTimestamp()
 
-      // Tentar responder apenas se ainda não foi respondido
-      if (!interaction.replied && !interaction.deferred) {
-        try {
+      // Tentar responder de forma mais defensiva
+      try {
+        if (!interaction.replied && !interaction.deferred) {
+          console.log(`📤 [STATUS-CONVITE] Tentando reply direto com erro...`)
           await interaction.reply({ embeds: [errorEmbed], ephemeral: true })
-        } catch (replyError) {
-          console.error("❌ Erro ao responder interação:", replyError.message)
-        }
-      } else if (interaction.deferred && !interaction.replied) {
-        try {
+        } else if (interaction.deferred && !interaction.replied) {
+          console.log(`📤 [STATUS-CONVITE] Tentando followUp com erro...`)
           await interaction.followUp({ embeds: [errorEmbed] })
-        } catch (followUpError) {
-          console.error("❌ Erro ao fazer followUp:", followUpError.message)
+        } else {
+          console.warn(
+            `⚠️ [STATUS-CONVITE] Não pode responder erro - estado: replied=${interaction.replied}, deferred=${interaction.deferred}`,
+          )
         }
+      } catch (replyError) {
+        console.error(`❌ [STATUS-CONVITE] Erro ao responder com erro:`, replyError.message)
       }
+    } finally {
+      // Remover do cache após um tempo
+      setTimeout(() => {
+        processedInteractions.delete(interactionId)
+      }, 30000) // 30 segundos
     }
   },
 }
