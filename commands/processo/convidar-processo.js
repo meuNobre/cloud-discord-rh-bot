@@ -1,4 +1,5 @@
 const { SlashCommandBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, EmbedBuilder } = require("discord.js")
+const { interactionManager } = require("../../utils/interactionManager")
 
 // Cores do tema Hylex
 const COLORS = {
@@ -19,102 +20,45 @@ module.exports = {
     ),
 
   async execute(interaction) {
-    // Verificar se a interação não expirou
-    const interactionAge = Date.now() - interaction.createdTimestamp
-    if (interactionAge > 2500) {
-      console.warn(`⚠️ Interação muito antiga (${interactionAge}ms), ignorando...`)
+    console.log(`🔍 [CONVIDAR-PROCESSO] Comando iniciado por: ${interaction.user.tag}`)
+
+    // Verificar se pode processar a interação
+    if (!interactionManager.canProcessInteraction(interaction)) {
+      console.warn(`⚠️ [CONVIDAR-PROCESSO] Interação não pode ser processada`)
       return
     }
 
-    try {
-      console.log(`🔍 [DEBUG] Iniciando comando convidar-processo`)
-      console.log(`   👤 Executado por: ${interaction.user.tag}`)
-      console.log(`   ⏰ Idade da interação: ${interactionAge}ms`)
+    // Marcar como sendo processada
+    interactionManager.startProcessing(interaction)
 
+    try {
       const database = global.ticketSystem.database
 
-      // Responder imediatamente para evitar timeout
-      await interaction.reply({
+      // Resposta imediata para evitar timeout
+      console.log(`📤 [CONVIDAR-PROCESSO] Enviando resposta inicial...`)
+      await interactionManager.safeReply(interaction, {
         content: "🔄 Processando convite...",
         ephemeral: true,
       })
 
-      // Debug das opções disponíveis
-      console.log(`🔍 [DEBUG] Opções disponíveis:`)
-      interaction.options.data.forEach((option, index) => {
-        console.log(`   ${index + 1}. ${option.name}: ${option.value} (tipo: ${option.type})`)
-        if (option.user) {
-          console.log(`      👤 Usuário: ${option.user.tag} (${option.user.id})`)
-        }
-      })
+      // Obter o usuário candidato
+      const candidato = interaction.options.getUser("candidato")
 
-      // Tentar obter o usuário de diferentes formas
-      let candidato = null
-
-      // Método 1: getUser()
-      try {
-        candidato = interaction.options.getUser("candidato")
-        console.log(`🔍 [DEBUG] Método 1 (getUser): ${candidato ? candidato.tag : "null"}`)
-      } catch (error) {
-        console.log(`❌ [DEBUG] Erro no método 1: ${error.message}`)
-      }
-
-      // Método 2: get() + fetch se método 1 falhou
       if (!candidato) {
-        try {
-          const option = interaction.options.get("candidato")
-          console.log(`🔍 [DEBUG] Opção raw:`, option)
-
-          if (option && option.value) {
-            candidato = await interaction.client.users.fetch(option.value, { force: true })
-            console.log(`🔍 [DEBUG] Método 2 (fetch): ${candidato ? candidato.tag : "null"}`)
-          }
-        } catch (error) {
-          console.log(`❌ [DEBUG] Erro no método 2: ${error.message}`)
-        }
-      }
-
-      // Método 3: Buscar na cache do cliente
-      if (!candidato) {
-        try {
-          const option = interaction.options.get("candidato")
-          if (option && option.value) {
-            candidato = interaction.client.users.cache.get(option.value)
-            console.log(`🔍 [DEBUG] Método 3 (cache): ${candidato ? candidato.tag : "null"}`)
-          }
-        } catch (error) {
-          console.log(`❌ [DEBUG] Erro no método 3: ${error.message}`)
-        }
-      }
-
-      // Se ainda não encontrou o usuário
-      if (!candidato) {
-        console.error(`❌ [DEBUG] Nenhum método conseguiu obter o usuário`)
+        console.error(`❌ [CONVIDAR-PROCESSO] Usuário não encontrado`)
 
         const errorEmbed = new EmbedBuilder()
           .setTitle("❌ Usuário Não Encontrado")
           .setDescription("Não foi possível encontrar o usuário selecionado.")
           .setColor(COLORS.ERROR)
-          .addFields(
-            {
-              name: "🔧 Possíveis Soluções",
-              value:
-                "• Tente executar o comando novamente\n• Verifique se o usuário ainda está no servidor\n• Contate um administrador se o problema persistir",
-              inline: false,
-            },
-            {
-              name: "🔍 Debug Info",
-              value: `Idade da interação: ${interactionAge}ms\nOpções: ${interaction.options.data.length}`,
-              inline: false,
-            },
-          )
           .setFooter({ text: "Hylex • Sistema de Recrutamento" })
           .setTimestamp()
 
-        return await interaction.editReply({ content: null, embeds: [errorEmbed] })
+        await interaction.editReply({ content: null, embeds: [errorEmbed] })
+        return
       }
 
-      console.log(`✅ [DEBUG] Usuário encontrado: ${candidato.tag} (${candidato.id})`)
+      console.log(`✅ [CONVIDAR-PROCESSO] Usuário encontrado: ${candidato.tag}`)
 
       // Verificações de segurança
       if (candidato.bot) {
@@ -125,7 +69,8 @@ module.exports = {
           .setFooter({ text: "Hylex • Sistema de Recrutamento" })
           .setTimestamp()
 
-        return await interaction.editReply({ content: null, embeds: [errorEmbed] })
+        await interaction.editReply({ content: null, embeds: [errorEmbed] })
+        return
       }
 
       if (candidato.id === interaction.user.id) {
@@ -136,16 +81,17 @@ module.exports = {
           .setFooter({ text: "Hylex • Sistema de Recrutamento" })
           .setTimestamp()
 
-        return await interaction.editReply({ content: null, embeds: [errorEmbed] })
+        await interaction.editReply({ content: null, embeds: [errorEmbed] })
+        return
       }
 
       // Verificar convites pendentes
       try {
-        console.log(`🔍 [DEBUG] Verificando convites pendentes...`)
+        console.log(`🔍 [CONVIDAR-PROCESSO] Verificando convites pendentes...`)
         const existingInvite = await database.getPendingInviteByUser(candidato.id)
 
         if (existingInvite) {
-          console.log(`⚠️ [DEBUG] Convite pendente encontrado`)
+          console.log(`⚠️ [CONVIDAR-PROCESSO] Convite pendente encontrado`)
 
           const errorEmbed = new EmbedBuilder()
             .setTitle("⚠️ Convite Já Existe")
@@ -166,10 +112,11 @@ module.exports = {
             .setFooter({ text: "Hylex • Sistema de Recrutamento" })
             .setTimestamp()
 
-          return await interaction.editReply({ content: null, embeds: [errorEmbed] })
+          await interaction.editReply({ content: null, embeds: [errorEmbed] })
+          return
         }
 
-        console.log(`✅ [DEBUG] Nenhum convite pendente`)
+        console.log(`✅ [CONVIDAR-PROCESSO] Nenhum convite pendente`)
       } catch (dbError) {
         console.error("❌ Erro ao verificar convites:", dbError)
         // Continuar mesmo com erro
@@ -179,11 +126,11 @@ module.exports = {
       await interaction.editReply({ content: "📤 Tentando enviar convite via DM..." })
 
       // Tentar criar DM
-      console.log(`📤 [DEBUG] Criando DM...`)
+      console.log(`📤 [CONVIDAR-PROCESSO] Criando DM...`)
       let dm
       try {
         dm = await candidato.createDM()
-        console.log(`✅ [DEBUG] DM criado`)
+        console.log(`✅ [CONVIDAR-PROCESSO] DM criado`)
       } catch (dmError) {
         console.error("❌ Erro ao criar DM:", dmError)
 
@@ -200,7 +147,8 @@ module.exports = {
           .setFooter({ text: "Hylex • Sistema de Recrutamento" })
           .setTimestamp()
 
-        return await interaction.editReply({ content: null, embeds: [errorEmbed] })
+        await interaction.editReply({ content: null, embeds: [errorEmbed] })
+        return
       }
 
       // Criar embeds do convite
@@ -269,7 +217,7 @@ module.exports = {
       )
 
       // Tentar enviar convite via DM
-      console.log(`📤 [DEBUG] Enviando mensagem DM...`)
+      console.log(`📤 [CONVIDAR-PROCESSO] Enviando mensagem DM...`)
       let dmMessage
       let dmSuccess = false
 
@@ -278,20 +226,20 @@ module.exports = {
           embeds: [inviteEmbed, welcomeEmbed],
           components: [actionRow],
         })
-        console.log(`✅ [DEBUG] Convite enviado via DM - ID: ${dmMessage.id}`)
+        console.log(`✅ [CONVIDAR-PROCESSO] Convite enviado via DM - ID: ${dmMessage.id}`)
         dmSuccess = true
       } catch (sendError) {
         console.error("❌ Erro ao enviar DM:", sendError)
 
         // Verificar se é erro de DM bloqueada
         if (sendError.code === 50007) {
-          console.log(`⚠️ [DEBUG] DMs bloqueadas para ${candidato.tag}, tentando alternativa...`)
+          console.log(`⚠️ [CONVIDAR-PROCESSO] DMs bloqueadas para ${candidato.tag}`)
 
           // Criar convite mesmo sem conseguir enviar DM
           const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 horas
 
           try {
-            console.log(`💾 [DEBUG] Salvando convite no banco (DM bloqueada)...`)
+            console.log(`💾 [CONVIDAR-PROCESSO] Salvando convite no banco (DM bloqueada)...`)
             await database.createInvite(
               candidato.id,
               candidato.tag,
@@ -299,7 +247,7 @@ module.exports = {
               interaction.user.id,
               expiresAt.toISOString(),
             )
-            console.log(`✅ [DEBUG] Convite salvo no banco`)
+            console.log(`✅ [CONVIDAR-PROCESSO] Convite salvo no banco`)
           } catch (dbError) {
             console.error("❌ Erro ao salvar no banco:", dbError)
           }
@@ -339,18 +287,13 @@ module.exports = {
                   "• Peça para o usuário abrir suas DMs\n• Contate o usuário por outros meios\n• Use o comando novamente após o usuário ajustar as configurações",
                 inline: false,
               },
-              {
-                name: "📋 Instruções para o Usuário",
-                value:
-                  "1. Ir em **Configurações do Usuário**\n2. **Privacidade e Segurança**\n3. Ativar **'Permitir mensagens diretas de membros do servidor'**\n4. Tentar novamente",
-                inline: false,
-              },
             )
             .setFooter({ text: "Hylex • Sistema de Recrutamento" })
             .setTimestamp()
             .setThumbnail(candidato.displayAvatarURL({ dynamic: true }))
 
-          return await interaction.editReply({ content: null, embeds: [dmBlockedEmbed] })
+          await interaction.editReply({ content: null, embeds: [dmBlockedEmbed] })
+          return
         } else {
           // Outro tipo de erro
           const errorEmbed = new EmbedBuilder()
@@ -377,7 +320,8 @@ module.exports = {
             .setFooter({ text: "Hylex • Sistema de Recrutamento" })
             .setTimestamp()
 
-          return await interaction.editReply({ content: null, embeds: [errorEmbed] })
+          await interaction.editReply({ content: null, embeds: [errorEmbed] })
+          return
         }
       }
 
@@ -386,7 +330,7 @@ module.exports = {
         // Salvar no banco
         const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000) // 24 horas
         try {
-          console.log(`💾 [DEBUG] Salvando no banco...`)
+          console.log(`💾 [CONVIDAR-PROCESSO] Salvando no banco...`)
           await database.createInvite(
             candidato.id,
             candidato.tag,
@@ -394,7 +338,7 @@ module.exports = {
             interaction.user.id,
             expiresAt.toISOString(),
           )
-          console.log(`✅ [DEBUG] Salvo no banco`)
+          console.log(`✅ [CONVIDAR-PROCESSO] Salvo no banco`)
         } catch (dbError) {
           console.error("❌ Erro ao salvar no banco:", dbError)
           // Continuar mesmo com erro
@@ -453,27 +397,15 @@ module.exports = {
           .setTimestamp()
           .setThumbnail(candidato.displayAvatarURL({ dynamic: true }))
 
-        const confirmationMessage = await interaction.editReply({
+        await interaction.editReply({
           content: null,
           embeds: [confirmationEmbed],
         })
 
-        // Salvar ID da mensagem de confirmação
-        try {
-          await database.updateInviteConfirmationMessage(
-            candidato.id,
-            dmMessage.id,
-            confirmationMessage.id,
-            interaction.channelId,
-          )
-        } catch (dbError) {
-          console.error("❌ Erro ao atualizar confirmação:", dbError)
-        }
-
-        console.log(`🎉 [DEBUG] Processo concluído com sucesso para: ${candidato.tag}`)
+        console.log(`🎉 [CONVIDAR-PROCESSO] Processo concluído com sucesso para: ${candidato.tag}`)
       }
     } catch (error) {
-      console.error("❌ [ERROR] Erro geral:", error)
+      console.error("❌ [CONVIDAR-PROCESSO] Erro geral:", error)
 
       const errorEmbed = new EmbedBuilder()
         .setTitle("❌ Erro Interno")
@@ -495,14 +427,13 @@ module.exports = {
         .setTimestamp()
 
       try {
-        if (interaction.replied || interaction.deferred) {
-          await interaction.editReply({ content: null, embeds: [errorEmbed] })
-        } else {
-          await interaction.reply({ embeds: [errorEmbed], ephemeral: true })
-        }
+        await interaction.editReply({ content: null, embeds: [errorEmbed] })
       } catch (replyError) {
         console.error("❌ Erro ao responder com erro:", replyError)
       }
+    } finally {
+      // Marcar como processada
+      interactionManager.finishProcessing(interaction)
     }
   },
 }

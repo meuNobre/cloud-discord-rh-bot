@@ -15,15 +15,13 @@ const {
 const { token } = require("./config.json")
 const database = require("./database/database")
 const { setupPeriodicCleanup } = require("./utils/cleanup")
+const { interactionManager } = require("./utils/interactionManager")
 
 // Importar o manipulador de interações do painel
 const { handlePanelInteraction, MAINTENANCE_MODE } = require("./events/interactionCreate2")
 
 // Configurações do painel
 const PAINEL_CHANNEL_ID = "1246908290227507312"
-
-// Cache global para interações processadas
-global.processedInteractions = new Set()
 
 // Cria a instância do cliente
 const client = new Client({
@@ -332,49 +330,22 @@ function createMainPanelButtons() {
   return [row1, row2, row3]
 }
 
-// Event listener para interações com verificações mais rigorosas
+// Event listener para interações com sistema centralizado
 client.on("interactionCreate", async (interaction) => {
-  // Verificações iniciais mais rigorosas
-  const interactionAge = Date.now() - interaction.createdTimestamp
-  const interactionId = `${interaction.id}_${interaction.user.id}`
-
-  console.log(`🔍 [MAIN] Interação recebida:`)
+  console.log(`🔍 [MAIN] Nova interação recebida:`)
   console.log(`   👤 Usuário: ${interaction.user.tag}`)
   console.log(`   🆔 ID: ${interaction.id}`)
-  console.log(`   ⏰ Idade: ${interactionAge}ms`)
   console.log(`   📍 Tipo: ${interaction.type}`)
-  console.log(`   ✅ Replied: ${interaction.replied}`)
-  console.log(`   ⏳ Deferred: ${interaction.deferred}`)
-
-  // Verificar se a interação é muito antiga
-  if (interactionAge > 2500) {
-    console.warn(`⚠️ [MAIN] Interação muito antiga (${interactionAge}ms), ignorando`)
-    return
-  }
-
-  // Verificar se já foi processada
-  if (global.processedInteractions.has(interactionId)) {
-    console.warn(`⚠️ [MAIN] Interação já processada, ignorando`)
-    return
-  }
-
-  // Verificar estado da interação
-  if (interaction.replied || interaction.deferred) {
-    console.warn(`⚠️ [MAIN] Interação já foi respondida/deferida, ignorando`)
-    return
-  }
+  console.log(`   ⏰ Idade: ${Date.now() - interaction.createdTimestamp}ms`)
 
   // ===== COMANDOS SLASH =====
   if (interaction.isChatInputCommand()) {
     global.botStats.commandsExecuted++
 
-    // Marcar como processada
-    global.processedInteractions.add(interactionId)
-
     const command = client.commands.get(interaction.commandName)
 
     if (!command) {
-      console.error(`❌ Comando ${interaction.commandName} não encontrado.`)
+      console.error(`❌ [MAIN] Comando ${interaction.commandName} não encontrado.`)
       return
     }
 
@@ -390,32 +361,12 @@ client.on("interactionCreate", async (interaction) => {
         message: error.message,
         timestamp: new Date(),
       })
-
-      // Tentar responder com erro de forma mais defensiva
-      try {
-        if (!interaction.replied && !interaction.deferred) {
-          await interaction.reply({
-            content: "❌ Houve um erro ao executar este comando!",
-            ephemeral: true,
-          })
-        }
-      } catch (replyError) {
-        console.error(`❌ [MAIN] Erro ao responder com erro:`, replyError.message)
-      }
-    } finally {
-      // Remover do cache após um tempo
-      setTimeout(() => {
-        global.processedInteractions.delete(interactionId)
-      }, 30000)
     }
     return
   }
 
   // ===== BOTÕES E SELECT MENUS =====
   if (interaction.isButton() || interaction.isStringSelectMenu()) {
-    // Marcar como processada
-    global.processedInteractions.add(interactionId)
-
     // Lista de customIds do painel de controle
     const panelCustomIds = [
       "panel_refresh",
@@ -452,33 +403,12 @@ client.on("interactionCreate", async (interaction) => {
         console.log(`✅ [MAIN] Interação do painel processada com sucesso`)
       } catch (error) {
         console.error(`❌ [MAIN] Erro ao processar interação do painel:`, error)
-
-        if (!interaction.replied && !interaction.deferred) {
-          try {
-            await interaction.reply({
-              content: "❌ Erro ao processar a interação do painel.",
-              ephemeral: true,
-            })
-          } catch (replyError) {
-            console.error(`❌ [MAIN] Erro ao responder erro do painel:`, replyError.message)
-          }
-        }
-      } finally {
-        // Remover do cache após um tempo
-        setTimeout(() => {
-          global.processedInteractions.delete(interactionId)
-        }, 30000)
       }
       return
     }
 
     // Para todas as outras interações (convites, suporte, etc.)
     console.log(`🔄 [MAIN] Processando interação: ${interaction.customId}`)
-
-    // Remover do cache após um tempo
-    setTimeout(() => {
-      global.processedInteractions.delete(interactionId)
-    }, 30000)
   }
 })
 
@@ -515,16 +445,6 @@ client.once("ready", async () => {
     collectSystemMetrics()
   }, 30000)
 
-  // Limpar cache de interações processadas a cada 5 minutos
-  setInterval(() => {
-    const cacheSize = global.processedInteractions.size
-    if (cacheSize > 200) {
-      const entries = Array.from(global.processedInteractions)
-      entries.slice(0, 100).forEach((id) => global.processedInteractions.delete(id))
-      console.log(`🧹 Cache de interações limpo: ${cacheSize} -> ${global.processedInteractions.size}`)
-    }
-  }, 300000) // 5 minutos
-
   // ✅ INICIAR API APÓS O BOT ESTAR PRONTO E AGUARDAR UM POUCO
   setTimeout(() => {
     try {
@@ -536,42 +456,7 @@ client.once("ready", async () => {
         console.error("❌ Falha ao iniciar API de documentação")
       }
     } catch (error) {
-      console.error("❌ Erro ao iniciar API:", error)
+      console.error("❌ Erro ao iniciar API de documentação:", error)
     }
-  }, 3000) // Aguardar 3 segundos após o bot estar pronto
+  }, 5000)
 })
-
-// Monitoramento de mensagens
-client.on("messageCreate", () => {
-  global.botStats.messagesProcessed++
-})
-
-// Tratamento de erros
-client.on("error", (error) => {
-  console.error("Erro do cliente:", error)
-  global.botStats.errors.push({
-    type: "CLIENT_ERROR",
-    message: error.message,
-    timestamp: new Date(),
-  })
-})
-
-process.on("unhandledRejection", (error) => {
-  console.error("Unhandled promise rejection:", error)
-  global.botStats.errors.push({
-    type: "UNHANDLED_REJECTION",
-    message: error.message,
-    timestamp: new Date(),
-  })
-})
-
-// Graceful shutdown
-process.on("SIGINT", () => {
-  console.log("🔄 Encerrando iCloud Bot...")
-  database.close()
-  client.destroy()
-  process.exit(0)
-})
-
-// Login do bot
-client.login(token)
