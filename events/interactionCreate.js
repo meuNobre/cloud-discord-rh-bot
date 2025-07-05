@@ -1,6 +1,6 @@
 const { interactionManager } = require("../utils/interactionManager")
 const { Events, EmbedBuilder, ActionRowBuilder, ButtonBuilder, ButtonStyle, ChannelType } = require("discord.js")
-const { database } = require("../utils/database")
+const { database } = require("../database/database")
 const { GUILD_ID, SUPORTE_CHANNEL_ID } = process.env
 const activeTickets = new Map()
 const threadUsers = new Map()
